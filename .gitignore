@@ -1,0 +1,8 @@
+# 构建源码与产物不入库
+openwrt/
+*.img
+*.img.gz
+*.gz
+*.apk
+*.ipk
+*.tar.zst
