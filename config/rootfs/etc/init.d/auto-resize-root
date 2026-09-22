@@ -1,0 +1,36 @@
+#!/bin/sh /etc/rc.common
+# ============================================================
+# 开机自动扩容脚本（每次启动执行，幂等）
+# 作用：把根分区自动扩展到整块硬盘（如 14GB），并扩容 ext4 文件系统。
+# 说明：镜像根分区为 2GB，本脚本会将其扩满整盘；已扩满时自动跳过。
+# 依赖：parted、e2fsprogs（已在固件中内置）
+# ============================================================
+START=99
+STOP=00
+
+boot() {
+    # 定位根文件系统所在块设备（/dev/sdX2、/dev/vdX2、/dev/nvme0n1p2 等）
+    ROOT_BLK="$(readlink -f /dev/root 2>/dev/null)"
+    [ -n "$ROOT_BLK" ] || ROOT_BLK="$(findmnt -n -o SOURCE / 2>/dev/null)"
+
+    case "$ROOT_BLK" in
+        /dev/sd*[0-9]|/dev/vd*[0-9]|/dev/xvd*[0-9]|/dev/nvme*[0-9]) ;;
+        *) echo "auto-resize: 无法识别的根设备 $ROOT_BLK，跳过"; return 0 ;;
+    esac
+
+    ROOT_DISK="/dev/$(basename "${ROOT_BLK%/*}")"
+    ROOT_PART="${ROOT_BLK##*[^0-9]}"
+    echo "auto-resize: 磁盘=$ROOT_DISK 根分区=$ROOT_PART"
+
+    # 1) 扩展分区到整盘 100%（已占满则无操作）
+    parted -f -s "$ROOT_DISK" resizepart "$ROOT_PART" 100% 2>/dev/null || \
+        echo "auto-resize: 分区无需调整或已满"
+
+    # 2) 扩容 ext4 文件系统（已满则自动跳过）
+    resize2fs "$ROOT_BLK" 2>/dev/null || \
+        e2fsck -y -f "$ROOT_BLK" >/dev/null 2>&1 && resize2fs "$ROOT_BLK" 2>/dev/null
+
+    echo "auto-resize: 完成"
+    df -h /
+    return 0
+}
